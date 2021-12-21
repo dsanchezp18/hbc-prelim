@@ -10,7 +10,6 @@ To be honest, this project wasn't thought to be as reproducible as the other rep
 
 Again, this is in honor of my grandpa. Descansa en paz abuelito.
 
-
 Regards,
 
 Daniel
