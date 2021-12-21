@@ -1,0 +1,1110 @@
+---
+title: "Preliminary LAPOP's AB Study- Attitudes on Corruption Ecuador 2014-2016"
+author: "Daniel Sánchez"
+date: "2021/08/16"
+output:
+  html_notebook: default
+  pdf_document: default
+  html_document:
+    df_print: paged
+subtitle: USFQ Economics Undergraduate Thesis
+---
+
+Here the initial findings with the difference-in-differences (DiD) approach to the research question are presented and analyzed. Below, the setup chunk to be run for all the R chunks in the notebook. It loads libraries needed in the other R code chunks below. The `margins` package that was used to produce these results is a Github-downloaded version by @tzoltak (<https://github.com/leeper/margins/issues/124>).
+
+```{r setup, warning = F, results = 'hide'}
+# Load libraries
+library(tidyverse) # Tidyverse: tidyr, ggplot, etc.
+library(survey) # To control for survey design effects
+library(stargazer) # For regression tables
+library(ggeffects) # For calculation of average partial effects
+library(pscl) # For percent correctly predicted
+library(margins) # For average partial effects (survey friendly)
+library(mfx) # APEs, friendlier for non-survey objects
+library(performance) # PCP
+library(lmtest) # For various commands, specially regarding heteroskedasticity. 
+library(openxlsx) # To write XL workbooks
+library(marginaleffects) # For AMEs without survey weighting
+library(modelsummary) # For AME tables
+library(car) # Companion to applied regression, for hypothesis testing
+library(lmtest) # For inference, likelihood ratios. 
+```
+
+Note that the dataframe that will be used is the `df46` dataframe as created in the other scripts in the project. It is renamed to `data` here so that the commands involving it are shorter.
+
+## Empirical Strategy Specification
+
+In order to be able to explain the jump in corruption tolerance as seen by the % of people who justify corruption, a DiD design is done. The interaction of key explanatory variables (which are thought to have changed between the two periods) with the 2016 year dummy is the DiD. A general model could be specified as follows:
+
+$$P(ctol = 1 | \mathbb{X}) = G \left \{ \beta_0 + \delta_0 y_{16} + \sum_{j=1}^k \left[ \beta_j(\text{other factors}) \right] + \sum_{i=1}^m \left[ \delta_i (y_{16} \cdot \text{key covariates})\right] \right \} $$ where $ctol$ is a dummy variable taking on values depending on the response to the LAPOP's AB EXC18 question: "Do you think given the way things are, sometimes paying a bribe is justified?". $ctol=1$ is 1 when the response to EXC18 is "Yes", "0" if the answer is "No" and the NA values reported by the AB's databases are also taken as missing values for this analysis.
+
+$y_{16}$ is the 2016 year dummy, other factors are controls included in the models and the DiD estimates ($\hat{\lambda_i}$) are those that result from interacting the 2016 dummy with key explanatory variables that are thought to influence the jump in corruption tolerance.
+
+## Declaring the survey design
+
+The LAPOP's America's Barometer is a complex-design survey with clusters and strata. Due to this, the survey design must be declared in order to produce the adequate adjustments in the data analysis, as follows:
+
+```{r survey-design}
+# For all years
+ab_des_ec<-svydesign(ids=~upm, 
+                         strata=~estratopri, 
+                         weights=~weight1500, 
+                         nest=TRUE,
+                         na.action = 'na.exclude',
+                         data=df)
+
+# For years 2014-2016
+ab_des_ec1416<-svydesign(ids=~upm, 
+                         strata=~estratopri, 
+                         weights=~weight1500, 
+                         nest=TRUE,
+                         na.action = 'na.exclude',
+                         data=df46)
+# Only for 2014
+
+ab_des_ec14<-svydesign(ids = ~ upm, 
+                      strata = ~ estratopri, 
+                      weights = ~ wt, 
+                      nest = TRUE,
+                      na.action = 'na.exclude',
+                      data = df_2014)
+# Only for 2016
+
+ab_des_ec16<-svydesign(ids = ~ upm, 
+                      strata = ~ estratopri, 
+                      weights = ~ wt, 
+                      nest = TRUE,
+                      na.action = 'na.exclude',
+                      data = df_2016)
+
+```
+
+### Adjustments done
+
+By far the most important and frequent adjustments that will be done with the survey design will be those regarding the calculations in regression models. So far, after using the adjustments in regression thru `svyglm()`, only the standard errors and the intercept are changed, as follows from the following example model.
+
+```{r testregs, warning = F}
+# First an unadjusted logit model
+log_age<-glm(ctol ~ year + age, 
+             data = df46,
+             family = binomial(link = 'logit'))
+# Now the adjusted logit model
+log_age_ad<-svyglm(ctol ~ year + age, 
+                   design = ab_des_ec1416,
+                   family = binomial(link = 'logit'))
+```
+
+```{r test_tables, warning=FALSE, results='asis', align = 'center', fig.align= 'center'}
+# Stargazer
+sg_test<-stargazer(list(log_age, log_age_ad),
+                   type = 'html',
+                   align = T)
+```
+
+```{r show-results, warning=FALSE, include=F}
+stargazer(list(log_age, log_age_ad), type = 'text')
+```
+
+As it can be seen above, there is no particular change to the magnitudes of the coefficients except the intercept. This might be because the samples in both 2014 and 2016 are self-weighted. The only changes are done to account the unequal selection probability of each observation (i.e. the violation of the random sampling assumption). This seems to affect standard errors, not the coefficients.
+
+Additionally, other adjustments to descriptive statistics are usually necessary when presenting graphs, specially. These are done using the design variables in the database and commands with the `svy` prefix.
+
+## How models are presented
+
+Throughout this study, besides from always taking design effects into account, I will present all models with their corresponding *average partial effects*, along with their estimated $\hat{\beta_j}$ coefficients. Naturally, tables with marginal effects only show figures for the independent variables, not for coefficients or complex functional forms.
+
+```{r calculations_example, warning = F, message = F, results = 'asis'}
+# Compute APEs through margins
+me_logage<-margins(log_age)
+me_logagead<-margins(log_age_ad)
+
+# Compute the survey-weighted logit PCPs
+
+pcp_log_age<-hitmiss(log_age_ad)
+pcp_log_age<-round(pcp_log_age, 2)
+names(pcp_log_age)<-c('Total', 'y=0', 'y=1') # Give vector names to better use in tables. 
+
+# Build a list of the marginal effects to later use with modelsummary
+
+list_me1<-list(me_logage, me_logagead)
+
+```
+
+Below, I exemplify a table of coefficients to be shown in the paper. These tables are key for showing the effects of complex functional forms, which are otherwise not seen in APE tables. Also, the overall percent correctly predicted (PCP) will be shown, along with the PCP for each of the outcomes in the dependent variable.
+
+```{r coef_ex_show, warning = F, results = 'asis'}
+
+stargazer(list(log_age, log_age_ad),
+          type = 'html',
+          model.names = F,
+          add.lines = list(c('Model Type', 'LPM(unweighted)', 'Logit(survey-weighted)'), 
+                           c('PCP (Total)', '', pcp_log_age[1]),
+                           c('PCP(y=1)', '', pcp_log_age[2]),
+                           c('PCP (y=0)', '', pcp_log_age[3])),
+          keep.stat = 'n')
+
+```
+
+```{r coef_ex_show_text, warning = F, include = F}
+stargazer(list(log_age, log_age_ad),
+          type = 'text',
+          model.names = F,
+          add.lines = list(c('Model Type', 'LPM(unweighted)', 'Logit(survey-weighted)'), 
+                           c('PCP (Total)', '', pcp_log_age[1]),
+                           c('PCP(y=1)', '', pcp_log_age[2]),
+                           c('PCP (y=0)', '', pcp_log_age[3])),
+          keep.stat = 'n')
+```
+
+In occasions where it is necessary, I present an additional table with APEs. Sometimes I'll present APEs without their estimated coefficients before. In those cases I'll put the required model stats below, like the previous table.
+
+```{r, results = 'asis'}
+modelsummary(list_me1, output = 'html', stars = c('*' = .1, '**' =0.05, '***'= 0.01))
+```
+
+## Simple significant DiD models
+
+These are simple, one variable DiD logit models which prove significance. They give insight into what characteristics of public opinion changed during the 2014-2016 period and which are statistically significant changes affecting corruption tolerance in the period.
+
+```{r simple_did, warning = F}
+# Unemployment DiD
+
+log_unemdid<-svyglm(ctol ~ year*unem_4a, 
+                   design = ab_des_ec1416,
+                   family = binomial(link = 'logit') # Logit
+                   )
+
+prob_unemdid<-svyglm(ctol ~ year*unem_4a, 
+                   design = ab_des_ec1416,
+                   family = binomial(link = 'probit') # Probit
+                   )
+
+# Political Score (Higher scores means more identified with right wing)
+
+log_polsdid<-svyglm(ctol ~ year*polscore, 
+                   design = ab_des_ec1416,
+                   family = binomial(link = 'logit') # Logit
+                   )
+
+prob_polsdid<-svyglm(ctol ~ year*polscore, 
+                   design = ab_des_ec1416,
+                   family = binomial(link = 'probit') # Probit
+                   )
+
+# Confidence in the president 
+
+log_pconfdid<-svyglm(ctol ~ year*pres_conf, 
+                   design = ab_des_ec1416,
+                   family = binomial(link = 'logit') # Logit
+                   )
+
+prob_pconfdid<-svyglm(ctol ~ year*pres_conf, 
+                   design = ab_des_ec1416,
+                   family = binomial(link = 'probit') # Logit
+                   )
+
+```
+
+We would expect that if we get a significant DiD estimate these are key explanatory variables which changed for 2016 with respect to 2014 and are important drivers in how people justify acts of corruption. Below, the models are shown, for three different variables.
+
+A significant DiD may not mean that it was a determinant factor which increased overall corruption tolerance in Ecuador. Must look at the signs first.
+
+I now calculate PCPS and marginal effects.
+
+```{r did_base_me, warning = F}
+
+# Estimate marginal effects for both probit and logit versions of all models
+
+me_unemdid_log<-margins(log_unemdid)
+
+me_unemdid_prob<-margins(prob_unemdid)
+
+me_polsdid_log<-margins(log_polsdid)
+
+me_polsdid_prob<-margins(prob_polsdid)
+
+me_pconfdid_log<-margins(log_pconfdid)
+
+me_pconfdid_prob<-margins(prob_pconfdid)
+
+# Also store the logit coefficients and APEs in a list, to present further.
+
+did_base_log<-list(log_unemdid,
+                   log_polsdid,
+                   log_pconfdid)
+
+did_base_apes<-list(me_unemdid_log,
+                    me_polsdid_log,
+                    me_pconfdid_log)
+
+# PCPs
+
+pcp_ulog<-hitmiss(log_unemdid)
+pcp_polslog<-hitmiss(log_polsdid)
+pcp_pconflog<-hitmiss(log_pconfdid)
+```
+
+I present the coefficients of logit models below, along with their corresponding PCPs:
+
+```{r stg_didbase, warning = F, results = 'asis'}
+stargazer(list(log_unemdid,log_polsdid, log_pconfdid),
+          type = 'html',
+          align = T, 
+          title = 'Base Difference in Difference Logit Models',
+          keep.stat = 'n',
+          omit = c('Constant'),
+          model.names = F,
+          digits = 2,
+          add.lines = list(c('PCP', round(pcp_ulog[1],2), round(pcp_polslog[1],2), round(pcp_pconflog[1],2)),
+                           c('PCP(y=0)',round(pcp_ulog[2],2), round(pcp_polslog[2],2), round(pcp_pconflog[2],2)),
+                           c('PCP(y=1)',round(pcp_ulog[3],2), round(pcp_polslog[3],2), round(pcp_pconflog[3],2))))
+```
+
+```{r stg_didbase_text, include = F}
+stargazer(list(log_unemdid,log_polsdid, log_pconfdid),
+          type = 'text',
+          align = T, 
+          title = 'Base Difference in Difference Logit Models',
+          keep.stat = 'n',
+          model.names = F,
+          digits = 2,
+          add.lines = list(c('PCP', round(pcp_ulog[1],2), round(pcp_polslog[1],2), round(pcp_pconflog[1],2)),
+                           c('PCP(y=0)',round(pcp_ulog[2],2), round(pcp_polslog[2],2), round(pcp_pconflog[2],2)),
+                           c('PCP(y=1)',round(pcp_ulog[3],2), round(pcp_polslog[3],2), round(pcp_pconflog[3],2))))
+   
+```
+
+Now, I present APEs for the logit models.
+
+```{r did_base_apes, results = 'asis'}
+
+modelsummary(did_base_apes, 
+             output = 'html', 
+             stars = c('*' = .1, '**' =0.05, '***'= 0.01))
+
+```
+
+### A note on coefficients and APEs
+
+Its important to note than when more complex functional forms enter the regression equation, average partial effects are only calculated for the "principal" variables, meaning that no marginal effects are calculated for the DiD estimates. For example, the effect of the DiD "enters" the year APE. Consider an LPM model with unemployment:
+
+$$P(ctol = 1 | \mathbb{X}) = \beta_0 + \delta_0 y_{16} + \beta_1 (\mu) + \delta_1 \left( y_{16} \cdot \mu \right) + u$$ The partial effect of year in $ctol$ is
+
+$$\dfrac{\partial ctol}{\partial y_{16}} = \delta_0 + \delta_1 \mu $$
+
+And the partial effect of unemployment in $ctol$ is
+
+$$\dfrac{\partial ctol }{ \partial \mu} = \beta_1 + \delta_1 y_{16}$$ Thus, when considering the APEs for this model, what is actually being computed is the average of the results of these two equations for all people in the sample. There won't be an APE for an interaction term.
+
+In order to test for "differences across groups", we might want to focus on the interaction term and it's significance. If $\delta_1>0$ in the sample, it means that there is a statistically significant difference on how the unemployed tolerate corruption between the years. We might want to know the effect as a whole, i.e. the "complete" effect of being unemployed on 2016 for corruption tolerance. This means plugging in $y_{16}=1$ in the equation for the partial effect of unemployment $\mu$ in corruption tolerance. This would equal looking at the quantitty $\hat{\beta_1} + \hat{\delta_1}y_{16}$. In order to test significance for it, one can reparameterize the model or simply run a regression that only uses observations in 2016.
+
+### Unemployment and Labor Market
+
+The significance in both the unemployment term and its interaction with the 2016 dummy say that, in any year, an unemployed individual is more likely to justify corruption. However, in 2016, this individual, while still more likely to acccept corruption than someone who is not unemployed (includes those in and out of the labor force), is less so compared to 2014.
+
+The same seems to hold for the model that includes the employment and not in workforce dummies.
+
+### Political score
+
+Only the DiD term is significant, meaning that a person who identifies more with the right wing is not significantly more tolerant of corruption in 2014. However, in 2016 the more to the right a person signals that they are, the more they justify corruption. This warrants more investigation as it suggests an interesting idea.
+
+### Confidence in the president
+
+This question (B21A in the survey), asks: *¿Hasta qué punto tiene confianza usted en el presidente?*, as usual, in a 1-7 scale. The directions of the effects estimated are quite interesting.
+
+In 2014, someone that had more confidence in the president was significantly less tolerant of corruption. The DiD term is positive but smaller than the confidence term. This means that, in 2016, a person that confided in the president was still less likely to tolerate corruption relative to someone that confided less. However, they did so in a smaller way compared to 2014.
+
+This may explain the jump in corruption tolerance, as, according to the graphs below, there is a sharp decline in people who confide in the president. Note that the way that the presidential confidence variable is dichotomized is similar to the dichotomization of similar 1-7 scaled variables in America's Barometer's reports (scores in 5-7 are coded as "Yes" or with value 1).
+
+```{r pres_conf_dic, eval=FALSE}
+df$pres_conf_dic<-ifelse(df$pres_conf >= 5, 'Yes', 'No')
+```
+
+The table below shows the time series of the confidence in the president for Ecuador beginning 2006.
+
+```{r pconf_time}
+pres_conf<-svyby(~ pres_conf_dic, ~ year, design = ab_des_ec, svymean, na.rm = T) %>% as.data.frame()
+pres_conf<-dplyr::select(pres_conf, pres_conf_dicYes, se.pres_conf_dicYes) %>% 
+           rename('%Yes'=pres_conf_dicYes, 'SE'= se.pres_conf_dicYes)
+pres_conf<-pres_conf[3:8,]
+pres_conf
+```
+
+Below, the same is done to the political score variable, dividing it in left and right.
+
+```{r dic_polscore, eval = F}
+df$pol_wing2<-ifelse(df$polscore < 6, 'Left', 'Right')
+```
+
+```{r polscore_time}
+polwing2<-svyby(~ pol_wing2, ~ year, design = ab_des_ec, svymean, na.rm = T) %>% as.data.frame()
+polwing2
+```
+
+An increase in unemployment is indeed seen, however, the new unemployed justify corruption in a less extent to the unemployed in 2014. The jump in corruption tolerance could be explained by a ten point rise in the percentage of "right-wingers", who are more likely to justify corruption. Also, since the confidence in the president decreased and for 2016 the negative effect of confidence in corruption tolerance is smaller, we can also justify the jump in corruption tolerance.
+
+It is not exactly clear whether it is the actual politicial orientation which causes, or is relate to, justification to corrupt attitudes. We continue investigating this further.
+
+## Complex DiD Model
+
+I now estimate a more complex model, incorporating all three previously significant DiDs and adding other control variables.
+
+```{r did_complex_model, warning = F}
+# Estimate the model through three methods
+
+# 1. LPM
+
+lpm_incd<-svyglm(ctol~ year*(unem2_4a + pres_conf + polscore) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + 
+             corrper, 
+             design = ab_des_ec1416)
+# 2. Probit
+
+prob_incd<-svyglm(ctol~ year*(unem2_4a + pres_conf + polscore) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + 
+               corrper, 
+               design = ab_des_ec1416,
+               family = binomial(link = 'probit') )
+# 3. Logit 
+
+log_incd<-svyglm(ctol~ year*(unem2_4a + pres_conf + polscore) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + 
+              corrper, 
+              design = ab_des_ec1416,
+              family = binomial(link = 'logit'))
+```
+
+I calculate the corresponding average partial effects below.
+
+```{r complex_model_apes, warning = F}
+
+me_lpmc<-margins(lpm_incd)
+me_probc<-margins(prob_incd)
+me_logc<-margins(log_incd)
+
+# Also compute PCPS
+
+pcp_probc<-hitmiss(prob_incd)
+pcp_probc<-round(pcp_probc, 4)
+pcp_logc<-hitmiss(log_incd)
+pcp_logc<-round(pcp_logc, 4)
+
+# Store both models in a list
+
+complex_did_all<-list(log_incd,
+                      prob_incd)
+
+# Store APEs in a list
+
+me_complex_didall<-list(me_lpmc,
+                        me_probc,
+                        me_logc)
+
+```
+
+Below the model is presented through survey-weighted least squares, logit and probit procedures. The PCPs for each outcome and the overall one are also presented.
+
+```{r present_complex_model, results = 'asis'}
+stargazer(list(lpm_incd, prob_incd, log_incd),
+          model.names  = F,
+          add.lines = list(c('Model Type', 'LPM', 'Probit (W)', 'Logit(W)'),
+                           c('PCP', '', pcp_probc[1], pcp_logc[1]),
+                           c('PCP (y=1)', '', pcp_probc[2], pcp_logc[2]),
+                           c('PCP (y=0)', '', pcp_probc[3], pcp_logc[3])),
+          type = 'html')
+```
+
+```{r cmodel_text, include = F}
+stargazer(list(lpm_incd, prob_incd, log_incd),
+          model.names  = F,
+          add.lines = list(c('Model Type', 'LPM', 'Probit (W)', 'Logit(W)'),
+                           c('PCP', '', pcp_probc[1], pcp_logc[1]),
+                           c('PCP (y=0)', '', pcp_probc[2], pcp_logc[2]),
+                           c('PCP (y=1)', '', pcp_probc[3], pcp_logc[3])),
+          type = 'text')
+```
+
+Now, I present APEs for these models.
+
+```{r, results = 'asis', include = T}
+modelsummary(me_complex_didall, 
+             output = 'markdown', 
+             stars = c('*' = .1, '**' =0.05, '***'= 0.01))
+```
+
+The most important finding is that the year dummy (2016) is lost, meaning that, once accounting for all the factors included in the model, observations from 2016 are not more likely to justify corruption. Age, once again, is a negative factor on corruption tolerance: a person which is older will be less likely to justify corruption.
+
+Interest in politics is indeed significant. The sign on it means that a person with more interest in politics is supposedly less tolerant of corruption, which is not what was previously found out.
+
+Gender, education, urban/rural settings, external political efficiency, perceptions of corruption (which is made comparable between 2014 and 2016) prove to not be significant for justification of bribes.
+
+Overall, unemployment seems to have the expected effect: a person which is unemployed is more likely to justify corruption than someone not unemployed (including those which are not in the labor force). Its overall effect, including its DiD estimate show that while the unemployed is always more tolerant of corruption, the unemployed in 2016 seemed to be less so compared to 2014.
+
+The political score which ranks individuals left to right shows that overall, the people who identified more with the right wing were more tolerant of corruption, but only so in 2016, not in 2014.
+
+Finally and perhaps most importantly, the people who trusted the president in both years were significantly less likely to justify corruption. However, in 2016 they were somewhat less rejecting of corruption tolerance compared to 2014. The jump in corruption tolerance could be partially explained by this fact, considering that in 2016 the drop in the confidence to the president was large.
+
+Sadly, the PCP for the outcome of interest is quite low. I hope to improve this as I add more significant variables to the model.
+
+## Testing out new variables
+
+Below, we try adding more variables to the model and also try out simpler ones. For simplicity, I only take into account the logit models below.
+
+### Religion
+
+Hurtado suggests being christian might promote industriousness, which in a way may help reject corruption. I add religious variables as categorized below:
+
+```{r relg_class, eval = F}
+df$rlg<-ifelse(df$q3c == 1, 'Catholic',
+               ifelse(df$q3c == 2 | df$q3c == 5, 'Christian',
+                      ifelse(df$q3c == 3 | df$q3c == 4 | df$q3c == 77, 'Other',
+                      ifelse(df$q3c == 6 | df$q3c == 12, 'JW/MOR', 'Atheist'))))
+```
+
+Where `JW/MOR` means those categorized as Jehova's Witnesses and Mormons.
+
+Preliminary results for this regression are presented below:
+
+```{r rlg_groups}
+svyglm(ctol~ year*(unem2_4a + pres_conf + polscore) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + 
+             corrper + rlg, 
+             design = ab_des_ec1416,
+             family = quasibinomial(link = 'logit')) %>% summary()
+
+```
+
+The political efficacy variable gains some significance here, suggesting a downward bias. However, no religious group seems so far to have a significant difference from atheists. For now Hurtado's hypothesis does not seem to expand to corruption tolerance. Below, a simple model using only the year dummy and the religion groups:
+
+```{r rlg_groups_simple}
+svyglm(ctol~ year + rlg, 
+       design = ab_des_ec1416,
+       family = quasibinomial(link = 'logit')) %>% summary()
+```
+
+Also not significant, so not even a spurious correlation is found. It might be that the religious groups are not important for corruption tolerance.
+
+The importance of religion in the individual's life is now considered in the complex model.
+
+### Economic variables
+
+The databases available for free do not include the wealth quintiles analysis, which forces me to only consider economic situation as they answer it:
+
+**idio2 Question:** *Do you think that your economic situation is better than, the same as, or worse than it was 12 months ago?*
+
+As expected, this question shows how must of the people in the 2016 sample report that their economic situation is worse. The same is seen from a question asking specifically about income.
+
+Adding this to the model, we get the following:
+
+```{r ecn_complex}
+svyglm(ctol~ year*(unem2_4a + pres_conf + polscore) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + 
+             corrper + econ_sit, 
+             design = ab_des_ec1416,
+             family = quasibinomial(link = 'logit')) %>% summary()
+```
+
+### Exposure to corruption
+
+LAPOPs AB often includes corruption "victimization" in its empirical analyses. My own version of this variable is exposure to corruption, which will equal 1 if the individual reports having been offered or having paid a bribe in any of the several questions regarding corruption on the dataset. At this moment, only 2012 thru 2019 have more or less reliable figures for this number.
+
+Including this variable in the models yields the following:
+
+```{r correxp_complex}
+correxp_complex<-svyglm(ctol~ year*(unem2_4a + pres_conf + polscore) + age + gndr + ed + ur + eff1 + eff2 + prot3 +                                pint_dic + corrper + corr_exp, 
+                        design = ab_des_ec1416,
+                        family = quasibinomial(link = 'logit'))
+summary(correxp_complex)
+```
+
+It would seem that this variable is quite important, so it must stay in models. Average partial effects below.
+
+```{r apes_correxp_complex, results = 'asis'}
+me_correxpc<-margins(correxp_complex)
+modelsummary(me_correxpc, 
+             output = 'html', 
+             stars= c('*' = .1, '**' =0.05, '***'= 0.01))
+```
+
+### Politization
+
+Politization, as defined by the LAPOP 2019 report, implies that the people inside a country start to identify more with political wings. This means a lower percentage of non responses to the question that asks people to identify with a score in a political range.
+
+There is an important change in politization between 2014 and 2016, as suggested by its time series. Below I include this dummy in the model previously estimated. In order to get the estimate, however, I must drop the political score independent variable from the model, and interact year with this dummy instead.
+
+```{r pltztion_complex}
+svyglm(ctol~ year*(unem2_4a + pres_conf + plscr_na) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + 
+             corrper + corr_exp, 
+             design = ab_des_ec1416,
+             family = quasibinomial(link = 'logit')) %>% summary()
+```
+
+Not really significant, we lose more by deleting the political score variable than what we gain from adding the politization variable.
+
+### Political groups rather than scores
+
+I replace the political score variable with political groups as defined in the LAPOP report.
+
+```{r polgroup_complex}
+svyglm(ctol~ year*(unem2_4a + pres_conf + pol_group) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + 
+             corrper + corr_exp, 
+             design = ab_des_ec1416,
+             family = quasibinomial(link = 'logit')) %>% summary()
+```
+
+It is rather weird that the interactions with all political groups and the year are not significant. Try again with a right wing dummy.
+
+```{r pol_wingright}
+
+svyglm(ctol~ year*(unem2_4a + pres_conf + rwing) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + 
+             corrper + corr_exp, 
+             design = ab_des_ec1416,
+             family = quasibinomial(link = 'logit')) %>% summary()
+```
+
+Still not significant. Why only significant with the actual political score variable. Might there be a problem in assuming it is a continous predictor?
+
+### Labor Market Variables
+
+I replace the unemployment dummy to include a factor with 3 groups: Employed, Not Employed and not in the workforce. Not being in the workforce implies that the respondent is either retired, unable to work in some way, a student or working the home.
+
+```{r work2_complex}
+svyglm(ctol~ year*(work_2a + pres_conf + polscore) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper +            corr_exp, 
+       design = ab_des_ec1416,
+       family = quasibinomial(link = 'logit')) %>% summary()
+```
+
+Results seem to be equal considering people who are not in the workforce. Interesting to know that employed peoples and those not in the workforce have no significant differences in corruption tolerance.
+
+Now I do the same analysis, but adding occupation in either the private or public sector. I restore the unemployment dummy. In this codification the variable will mean 1 if the individual works in the public sector, and 0 if he works in the private sector as employee, a self-employed or an owner/partner. Note that we can no longer have a general labor market DiD.
+
+```{r work_sec_c}
+svyglm(ctol~ year*(privpub + pres_conf + polscore ) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + 
+       corr_exp , 
+       design = ab_des_ec1416,
+       family = quasibinomial(link = 'logit')) %>% summary()
+```
+
+Seems to have no effect. Now consider doing the same for all four sectors. Doesn't really matter which one is the base sector.
+
+```{r work_sec1_c}
+svyglm(ctol~ year*(ocup_sec + pres_conf + polscore) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + 
+       corr_exp, 
+       design = ab_des_ec1416,
+       family = quasibinomial(link = 'logit')) %>% summary()
+```
+
+The unpaid part has significant changes, however, it is a very small part of the sample. Considering the following tabulation:
+
+```{r unpaid_tab}
+
+tab_unpaid<-table(df46$year, df46$ocup_sec) %>% prop.table(margin = 1)
+tab_unpaid<-tab_unpaid[6:7,] *100
+tab_unpaid
+
+```
+
+### Socio-Demographic
+
+Consider the new survey respondents in 2016. This is people who only now are answering the survey, meaning people with 16 and 17. Add a dummy variable and an interaction with year to the regression to compare both groups on both years. If this population think significantly different from the rest, they could be the reason why in 2016 corruption tolerance goes up by so much.
+
+```{r new, warning = F}
+new_age_did<-svyglm(ctol~ year*(unem2_4a + pres_conf + polscore + new) + age + gndr + ed + ur + eff1 + eff2 + 
+                    prot3 + pint_dic + corrper + corr_exp, 
+                    design = ab_des_ec1416,
+                    family = quasibinomial(link = 'logit'))
+summary(new_age_did)
+```
+
+Seems interesting, very large magnitudes but seems that seem to cancel each other out, which means that in 2014 under 18 respondents deeply rejected corruption, but in 2016 they started to justify it much more, leaving a net effect of 0 for under 18 respondents for 2016. Compute APEs:
+
+```{r apes_new, results = 'asis'}
+
+ape_newage_complex<-margins(new_age_did)
+
+modelsummary(ape_newage_complex,
+             output = 'html',
+             stars = c('*' = .1, '**' =0.05, '***'= 0.01))
+```
+
+Significant negative APE for new respondents... Not quite what would be expected. Needs further analysis. Estimate a DiD on its own for this variable:
+
+```{r new_age_did_sep}
+new_age_did_s<-svyglm(ctol~ year*new + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + 
+                      corr_exp + pres_conf + polscore + unem2_4a, 
+                      design = ab_des_ec1416,
+                      family = quasibinomial(link = 'logit'))
+summary(new_age_did_s)
+```
+
+Not too different from what we've seen before. APEs:
+
+```{r new_age_ape, results = 'asis'}
+
+me_newdid_s<-margins(new_age_did_s)
+
+modelsummary(me_newdid_s,
+             output = 'html',
+             stars = c('*' = .1, '**' =0.05, '***'= 0.01))
+
+```
+
+Same thing. Estimate cross-sectional models for this variable and compare the net effects.
+
+```{r new_age_yearcross}
+# 2014 New Age DiD
+new_age_did_14<-svyglm(ctol~ new + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + 
+                      corr_exp + pres_conf + polscore + unem2_4a, 
+                      design = ab_des_ec14,
+                      family = quasibinomial(link = 'logit'))
+summary(new_age_did_14)
+
+# 2016 New Age DiD
+
+new_age_did_16<-svyglm(ctol~ new + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + 
+                      corr_exp + pres_conf + polscore + unem2_4a, 
+                      design = ab_des_ec16,
+                      family = quasibinomial(link = 'logit'))
+summary(new_age_did_14)
+
+# APEs
+
+age_did_me14<-margins(new_age_did_14)
+age_did_me16<-margins(new_age_did_16)
+
+```
+
+Compare both models, side by side:
+
+```{r new_age_did_cross_2, results = 'asis'}
+
+stargazer(new_age_did_14, new_age_did_16,
+          type = 'html',
+          add.lines = c('Year', '2014', '2016'))
+
+```
+
+Now present APEs:
+
+```{r new_age_cross_ape, results = 'asis'}
+
+modelsummary(list(age_did_me14, age_did_me16),
+             output = 'markdown',
+             stars= c('*' = .1, '**' =0.05, '***'= 0.01))
+
+```
+
+This might have much to do with the frequency of people under 18 in the samples, much like the unpaid workers. Consider the following tabulation:
+
+```{r tabu_new_age}
+tab_new_age<-table(df$year, df$new) %>% prop.table(margin = 1)
+tab_new_age<-tab_new_age *100 
+```
+
+In 2016 there is an increase of `r round(tab_new_age[7,2] - tab_new_age[6,2],2)` percentage points of the total sample who are underage respondents. Meaning that in 2016 there are more young people overall. This increases even more for 2019.
+
+Now, let's check how this people respond to the survey.
+
+```{r new_age_ctol}
+
+# Subset dataframe for the underage respondents
+
+df_new<-subset(df, df$new == 1)
+
+# Tabulate and see what are the %'s of corruption tolerance
+
+tab_new_ctol<-table(df_new$year, df_new$ctol) %>% prop.table(margin = 1)
+tab_new_ctol
+
+```
+
+Previously, they all rejected corruption, and now about 30% of them now justify corruption, which is intuitive considering the signs of the interaction of this variable with year. This, however, may not mean a change in underlying public opinion. There is too little data to have a sensible conclusion.
+
+### Separation of DiDs
+
+I separate each DiD with the complex model with corruption exposure.
+
+```{r separated DiDs, warning = F}
+
+# Logit: 
+
+# Unemployment
+
+unem_did_log_c<-svyglm(ctol~ year*(unem2_4a) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + corr_exp + 
+                       polscore + pres_conf,
+                       design = ab_des_ec1416,
+                       family = binomial(link = 'logit'))
+
+# Political Score
+
+pols_did_log_c<-svyglm(ctol~ year*(polscore) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + corr_exp + 
+                       unem2_4a + pres_conf,
+                       design = ab_des_ec1416,
+                       family = binomial(link = 'logit'))
+
+# Presidential Confidence
+
+presc_did_log_c<-svyglm(ctol~ year*(pres_conf) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + corr_exp +
+                        unem2_4a + polscore,
+                        design = ab_des_ec1416,
+                        family = binomial(link = 'logit'))
+
+# Probit: 
+
+# Unemployment
+
+unem_did_prob_c<-svyglm(ctol~ year*(unem2_4a) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + corr_exp + 
+                       polscore + pres_conf,
+                        design = ab_des_ec1416,
+                        family = binomial(link = 'probit'))
+
+# Political Score
+
+pols_did_prob_c<-svyglm(ctol~ year*(polscore) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + corr_exp + 
+                       unem2_4a + pres_conf,
+                       design = ab_des_ec1416,
+                       family = binomial(link = 'probit'))
+
+# Presidential Confidence
+
+presc_did_prob_c<-svyglm(ctol~ year*(pres_conf) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + corr_exp +
+                        unem2_4a + polscore,
+                        design = ab_des_ec1416,
+                        family = binomial(link = 'probit'))
+
+# PCPS
+
+pcp_unemcl<-hitmiss(unem_did_log_c)
+pcp_polscl<-hitmiss(pols_did_log_c)
+pcp_pconfcl<-hitmiss(presc_did_log_c)
+pcp_unemcp<-hitmiss(unem_did_prob_c)
+pcp_polscp<-hitmiss(pols_did_prob_c)
+pcp_pconfcp<-hitmiss(presc_did_prob_c)
+
+```
+
+Present the coefficients below:
+
+```{r stargazer_did_sep, results = 'asis'}
+stargazer(list(unem_did_log_c, pols_did_log_c, presc_did_log_c),
+          type = 'html')
+```
+
+```{r stargazer_complex_sep_t, include = F}
+stargazer(list(unem_did_log_c, pols_did_log_c, presc_did_log_c),
+          type = 'text')
+
+```
+
+APEs estimated below:
+
+```{r apes_did_sep, warning = F}
+
+# Estimate APES
+
+me_unemcs_l<-margins(unem_did_log_c)
+me_unemcs_p<-margins(unem_did_prob_c)
+
+me_polscs_l<-margins(pols_did_log_c)
+me_polscs_p<-margins(pols_did_prob_c)
+
+me_prescs_l<-margins(presc_did_log_c)
+me_prescs_p<-margins(presc_did_prob_c)
+
+# List MEs of logit models, to show them later: 
+
+mes_separate_dids<-list(me_unemcs_l,
+                        me_polscs_l, 
+                        me_prescs_p)
+
+```
+
+Presentation of APEs below:
+
+```{r apes_sep_did, results = 'asis'}
+modelsummary(mes_separate_dids,
+             output = 'markdown',
+             stars= c('*' = .1, '**' =0.05, '***'= 0.01))
+
+```
+
+## Hypothesis testing
+
+### Unemployment
+
+I want to test and know about the net effect of unemployment in 2016 to corruption tolerance. For that, I want to first do a joint hypothesis test of the interaction coefficient with unemployment and year, as well as the sole unemployment coefficient. Must perform a Waldt test, which is the only test that works in surveys.
+
+```{r wald_unem}
+terms_unem<-c('unem2_4a', 'year2016:unem2_4a')
+
+regTermTest(unem_did_log_c, terms_unem, method = 'Wald')
+
+```
+
+It is thus confirmed that unemployment is important for corruption tolerance. The fact that the interaction term is significant means that there is indeed a difference in slopes across time for unemployed workers.
+
+Now, must check if the total effect for unemployment in 2016 is significant. I will run two different models with the interaction term, one for each year and compare coefficients.
+
+```{r unem_cross_section, results = 'asis'}
+
+# 2014 
+unem_did_log_14<-svyglm(ctol ~ unem2_4a + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + corr_exp + 
+                       polscore + pres_conf,
+                       design = ab_des_ec14,
+                       family = binomial(link = 'logit'))
+# 2016 
+unem_did_log_16<-svyglm(ctol ~ unem2_4a + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + corr_exp + 
+                       polscore + pres_conf,
+                       design = ab_des_ec16,
+                       family = binomial(link = 'logit'))
+
+stargazer(unem_did_log_14, unem_did_log_16,
+          type = 'text',
+          add.lines = list(c('Year', '2014','2016')))
+
+```
+
+The net effect for unemployment is null, thus in 2016 unemployed people rejected corruption less than those in 2014. Does not successfully explain the jump in corruption tolerance. Present the APEs below:
+
+```{r unem_cross_apes, results = 'asis'}
+
+me_unem2014<-margins(unem_did_log_14)
+me_unem2016<-margins(unem_did_log_16)
+
+me_unemcross<-list(me_unem2014,
+                   me_unem2016)
+
+modelsummary(me_unemcross,
+             output = 'html',
+             stars= c('*' = .1, '**' =0.05, '***'= 0.01))
+
+```
+
+### Political Wing Score
+
+I repeat the same analysis, but now for the `polscore` variable.
+
+```{r wald_polscore}
+terms_polscore<-c('polscore', 'year2016:polscore')
+
+regTermTest(pols_did_log_c, terms_unem, method = 'Wald')
+
+```
+
+It is possible that political score in a model with solely the political score as our DiD, is not significant at all to corruption justification. However, in the complex model that does include all variables, we may not see the same thing. Test:
+
+```{r wald_polscore_all}
+regTermTest(log_incd, terms_polscore, method = 'Wald')
+```
+
+The same, however our Wald test is slightly larger in this case. Still could be biased toward zero from omitted variables.
+
+Try to test the net effect comparing the cross-sectional regressions, as seen in the previous code chunk. Interestingly, in 2016 this effect is significant, which does, in a way, explain the corruption tolerance jump. If people that identify as more right-wingers start justifying corruption more, and the amount of people like this starts to increase, the hypothetical jump is explained.
+
+Now try with political groups. The base is the center.
+
+```{r pols_dids_group}
+
+pols_dis_group<-svyglm(ctol~ year*(pol_group) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + corr_exp                          + unem2_4a + pres_conf, 
+                       design = ab_des_ec1416,
+                       family = quasibinomial(link = 'logit'))
+pols_dis_group %>% summary()
+
+```
+
+No significance. It is very unstable. Run regressions like these for both years.
+
+```{r pols_dids_group_cross, results = 'asis'}
+
+pols_dis_group14<-svyglm(ctol ~ pol_group + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + 
+                         corr_exp + unem2_4a + pres_conf, 
+                         design = ab_des_ec14,
+                         family = quasibinomial(link = 'logit'))
+
+pols_dis_group16<-svyglm(ctol ~  pol_group + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + 
+                         corr_exp + unem2_4a + pres_conf, 
+                         design = ab_des_ec16,
+                         family = quasibinomial(link = 'logit'))
+
+stargazer(pols_dis_group14, pols_dis_group16,
+          type = 'text',
+          add.lines = list(c('Year', '2014','2016')))
+```
+
+There only seems to be some marginal significance for leftists: they justified corruption less in 2016, which could explain the jump since there were less leftists. APES below:
+
+```{r pols_group_cross_apes, results = 'asis'}
+
+me_polsgroup14<-margins(pols_dis_group14)
+me_polsgroup16<-margins(pols_dis_group16)
+
+me_polsgroups<-list(me_polsgroup14,
+                    me_polsgroup16)
+
+modelsummary(me_polsgroups,
+             output = 'html',
+             stars= c('*' = .1, '**' =0.05, '***'= 0.01))
+
+```
+
+#### Confidence in the president
+
+Do the same for the `pres_conf` variable.
+
+```{r wald_pres_conf_all}
+terms_pconf<-c('pres_conf', 'year2016:pres_conf')
+
+regTermTest(presc_did_log_c, terms_pconf, method = 'Wald')
+
+```
+
+The different cross sections show that people who confided in the president only rejected corruption in 2014. Beginning 2016, they stopped acting so zealous. This also justifies corruption tolerance.
+
+## New variables with separate DiDs
+
+### Approval Rating (President)
+
+I will now consider the job approval ratings of the president across time. First, I'll test for the correlation between this and confidence in the president and the political score variable
+
+```{r corr_pres_confap}
+
+cor(df46$pres_aprov, df46$pres_conf, use = 'complete.obs')
+cor(df46$pres_aprov, df46$polscore, use = 'complete.obs')
+cor(df46$pres_conf, df46$polscore, use = 'complete.obs')
+
+```
+
+There is indeed a high correlation, but not perfect with confidence in the president. Interesting to see that political score does not mean approval with the president.
+
+It will probably induce a lot multicollinearity to include both confidence in the president and approval of the president's job performance. Below, however, we try to do so.
+
+```{r pres_aprov, warning = F}
+
+# Logit: 
+
+# Unemployment
+
+unem_did_log_c2<-svyglm(ctol~ year*(unem2_4a) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + corr_exp + 
+                       polscore + pres_conf + pres_aprov,
+                       design = ab_des_ec1416,
+                       family = binomial(link = 'logit'))
+
+# Political Score
+
+pols_did_log_c2<-svyglm(ctol~ year*(polscore) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + corr_exp + 
+                       unem2_4a + pres_conf + pres_aprov,
+                       design = ab_des_ec1416,
+                       family = binomial(link = 'logit'))
+
+# Presidential Confidence
+
+presc_did_log_c2<-svyglm(ctol~ year*(pres_conf) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + corr_exp +
+                        unem2_4a + polscore + pres_aprov,
+                        design = ab_des_ec1416,
+                        family = binomial(link = 'logit'))
+
+# Probit: 
+
+# Unemployment
+
+unem_did_prob_c2<-svyglm(ctol~ year*(unem2_4a) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + corr_exp + 
+                        polscore + pres_conf + pres_aprov,
+                        design = ab_des_ec1416,
+                        family = binomial(link = 'probit'))
+
+# Political Score
+
+pols_did_prob_c2<-svyglm(ctol~ year*(polscore) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + corr_exp + 
+                       unem2_4a + pres_conf + pres_aprov,
+                       design = ab_des_ec1416,
+                       family = binomial(link = 'probit'))
+
+# Presidential Confidence
+
+presc_did_prob_c2<-svyglm(ctol~ year*(pres_conf) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + 
+                         corr_exp + unem2_4a + polscore + pres_aprov,
+                         design = ab_des_ec1416,
+                         family = binomial(link = 'probit'))
+
+# Make a list of the logit models
+
+logit_complex2_sepdid<-
+  list(unem_did_log_c2,
+       pols_did_log_c2,
+       presc_did_log_c2)
+
+# PCPS
+
+pcp_unemcl2<-hitmiss(unem_did_log_c2)
+pcp_polscl2<-hitmiss(pols_did_log_c2)
+pcp_pconfcl2<-hitmiss(presc_did_log_c2)
+pcp_unemcp2<-hitmiss(unem_did_prob_c2)
+pcp_polscp2<-hitmiss(pols_did_prob_c2)
+pcp_pconfcp2<-hitmiss(presc_did_prob_c2)
+
+
+```
+
+```{r present_coefs_c2}
+
+stargazer(logit_complex2_sepdid,
+          type = 'text'
+          )
+
+```
+
+It does nothing to the models. Try an interaction with year, a sole DiD model.
+
+```{r did_sole_paprov, warning = F}
+
+aprov_did_logdid<-svyglm(ctol~ year*(pres_aprov) + age + gndr + ed + ur + eff1 + eff2 + prot3 + pint_dic + corrper + 
+                         corr_exp + unem2_4a + pres_conf + polscore,
+                         design = ab_des_ec1416,
+                         family = binomial(link = 'probit')) 
+summary(aprov_did_logdid)
+
+```
+
+It does work as a DiD on its own, in a similar way that the confidence DiD works. Try joining both, and replacing presidential job approval with
+
+```{r did_both_confaprov, warning = F}
+
+aprov_didb_logdid<-svyglm(ctol~ year*(pres_aprov + pres_conf) + age + gndr + ed + ur + eff1 + eff2 + 
+                          prot3 + pint_dic + corrper + corr_exp + unem2_4a  + polscore,
+                          design = ab_des_ec1416,
+                          family = binomial(link = 'logit')) 
+
+
+aprov_did_logdid_noconf<-svyglm(ctol~ year*(pres_aprov ) + age + gndr + ed + ur + eff1 + eff2 + 
+                                prot3 + pint_dic + corrper + corr_exp + unem2_4a  + polscore,
+                                design = ab_des_ec1416,
+                                family = binomial(link = 'logit')) 
+
+hitmiss(aprov_didb_logdid)
+hitmiss(aprov_did_logdid_noconf)
+
+stargazer(aprov_didb_logdid, aprov_did_logdid_noconf,
+          type = 'text')
+
+```
+
+Compute APES for all of these models, and then compare.
+
+```{r mes_aprovalmodels}
+
+ape_didu_aprov<-margins(unem_did_log_c2)
+ape_didp_aprov<-margins(pols_did_log_c2)
+ape_didc_aprov<-margins(presc_did_log_c2)
+ape_aprov_did<-margins(aprov_did_logdid)
+ape_aprov_didb<-margins(aprov_didb_logdid)
+ape_aprov_dids<-margins(aprov_did_logdid_noconf)
+
+apes_did_aprov<-
+  list(ape_didu_aprov,
+       ape_didp_aprov,
+       ape_didc_aprov,
+       ape_aprov_did,
+       ape_aprov_didb,
+       ape_aprov_dids)
+
+modelsummary(apes_did_aprov, 
+             output = 'markdown',
+             stars = c('*' = .1, '**' =0.05, '***'= 0.01))
+
+
+```

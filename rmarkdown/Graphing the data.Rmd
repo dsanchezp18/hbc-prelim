@@ -1,0 +1,1160 @@
+---
+title: "Graphing the data"
+subtitle: "LAPOP's AB Empirical Study on the Attitudes on Corruption"
+date: "30/08/2021"
+author: "Daniel Sánchez"
+output: html_notebook
+---
+
+Here I will graph the data to be used in the paper, for motivation/introduction and a graphical, simpler representation of the pseudo DiD models. 
+
+The "preamble" of my code as follows:
+
+```{r setup}
+# Load libraries
+
+library(tidyverse) # For ggplots and others
+library(survey) # Survey management
+library(descr) # Descriptive stats
+library(WDI) # Get data from the World Development Indicators (World Bank)
+
+# Set the times new roman font for graphs
+
+windowsFonts(TNR = windowsFont("Times New Roman"))
+
+```
+
+## Declaring the survey design
+
+I declare the survey design of LAPOP's AB below, in order to produce accurate standard errors for all statistics. 
+```{r survey_des}
+# For all years
+ab_des_ec<-svydesign(ids=~upm, 
+                     strata=~estratopri, 
+                     weights=~weight1500, 
+                     nest=TRUE,
+                     na.action = 'na.exclude',
+                     data=df)
+
+# For years 2014-2016
+ab_des_ec1416<-svydesign(ids=~upm, 
+                         strata=~estratopri, 
+                         weights=~weight1500, 
+                         nest=TRUE,
+                         na.action = 'na.exclude',
+                         data=df46)
+
+
+```
+## Time series
+
+Below I include the simplest graphs which present time series of different statistics produced with the data of the AB. 
+
+### Corruption tolerance
+
+First I calculate the percentage taking into account the design effects, as it is done with LAPOP reports.
+```{r ctol_percs}
+ctol_perc_year<-svyby(~ ctol, ~ year, design = ab_des_ec, svymean, na.rm = T) %>% as.data.frame()
+ctol_perc_year
+```
+Now graph with `ggplot`:
+```{r ctol_graph_time,  fig.align = 'center'}
+ctol_time<-ggplot(ctol_perc_year, aes(x = year, y = ctol, group = 1)) + 
+           geom_line(aes(x = year, 
+                         y = ctol),
+                     size = 0.9, 
+                     colour = 'darkgreen') +
+           geom_point(size = 1.5) +
+           geom_line(aes(x = year, 
+                         y = ctol - se),
+                     size = 0.7, 
+                     colour = 'grey50',
+                     linetype = 'dotted') +
+           geom_line(aes(x = year, 
+                         y = ctol + se),
+                     size = 0.7, 
+                     colour = 'grey50',
+                     linetype = 'dotted') +
+           geom_text(aes(label= round(ctol, 4)*100),
+                     vjust = 0.55, 
+                     hjust = 1.68, 
+                     position = position_dodge(0.9),
+                     size = 2
+                     )+
+           theme_bw()+
+           theme(panel.grid.major = element_blank(),
+                 panel.grid.minor = element_blank(),
+                 text = element_text(family = 'TNR'),
+                 axis.text.y = element_blank(),
+                 axis.text.x = element_text(size = 8),
+                 axis.ticks = element_blank(),
+                 plot.title =  element_text(face = 'bold', size = 12),
+                 plot.subtitle = element_text(size = 12))+
+          labs(x = '', 
+               y = '', 
+               title = 'Percent who justify corruption in Ecuador, by year',
+               subtitle = 'With 95% confidence interval (considering design effects)')
+print(ctol_time)
+
+```
+Now repeat the graph as a bar chart:
+
+```{r ctol_graph_time_col,  fig.align = 'center'}
+ctol_time_col<-ggplot(ctol_perc_year, aes(x = year, y = ctol, group = 1)) + 
+               geom_col(fill = 'chartreuse3',
+                        colour = 'black') +
+               geom_errorbar(aes(ymin = ctol - 1.96*se,
+                                 ymax = ctol + 1.96*se),
+                             width = .5)+
+               geom_text(aes(label= round(ctol, 4)*100),
+                     size = 3,
+                     vjust = 6
+                     )+
+           theme_bw()+
+           theme(panel.grid.major = element_blank(),
+                 panel.grid.minor = element_blank(),
+                 text = element_text(family = 'TNR'),
+                 axis.text.y = element_blank(),
+                 axis.text.x = element_text(size = 8),
+                 axis.ticks = element_blank(),
+                 plot.title =  element_text(face = 'bold', size = 12),
+                 plot.subtitle = element_text(size = 12))+
+          labs(x = '', 
+               y = '', 
+               title = 'Percent who justify corruption in Ecuador, by year',
+               subtitle = 'With 95% confidence interval (considering design effects)')
+print(ctol_time_col)
+```
+The most important graph in the paper: it shows how the percentage of people who report tolerance to bribing has grown considerably. 
+
+### Confidence in the president 
+
+I now graph the time series of a dichotomized confidence in the president variable. Scores over 4 are coded as 1 in this dichotomized variable.
+
+Now I graph the time series of people who confide in the president. As usual in the LAPOP reports, the confidence in the president is coded as 1 when the scores responded are over or equal to 5. 
+
+```{r pres_conf_calc}
+
+pres_conf_calc<-svyby(~ pres_conf_dic, 
+                      ~ year, 
+                      design = ab_des_ec, 
+                      svymean, 
+                      na.rm = T) %>% as.data.frame()
+
+# Select only the variables I want and rename
+
+pres_conf_calc<-dplyr::select(pres_conf_calc, year, pres_conf_dicYes, se.pres_conf_dicYes) %>% 
+                rename('Yes'=pres_conf_dicYes, 'SE.y'=se.pres_conf_dicYes)
+
+# Delete years there isn't data for
+
+pres_conf_calc<- pres_conf_calc[3:8,]
+
+pres_conf_calc
+
+```
+
+```{r pres_conf_g}
+
+pres_conf_g<-ggplot(pres_conf_calc, aes(x = year, y = Yes, group = 1)) + 
+                     geom_col(fill = 'chartreuse3',
+                     colour = 'black') +
+                     geom_errorbar(aes(ymin = Yes - 1.6*SE.y,
+                                       ymax = Yes + 1.6*SE.y),
+                                   width = .5)+
+                     geom_text(aes(label= round(Yes, 4)*100),
+                               size = 3,
+                               vjust = 6)+
+                     theme_bw()+
+                     theme(panel.grid.major = element_blank(),
+                           panel.grid.minor = element_blank(),
+                           text = element_text(family = 'TNR'),
+                           axis.text.y = element_blank(),
+                           axis.text.x = element_text(size = 8),
+                           axis.ticks = element_blank(),
+                           plot.title =  element_text(face = 'bold', size = 12),
+                           plot.subtitle = element_text(size = 12))+
+                    labs(x = '', 
+                         y = '', 
+                         title = 'Percent of people who report confidence in the president, by year',
+                         subtitle = 'With 95% confidence interval (considering design effects)')
+print(pres_conf_g)
+
+```
+
+As seen before, confidence in the president drops sharply between 2014 and 2016. This is more interesting than the drop for 2019, since naturally the new administration was going to lose confidence as it switched the political spectrum abruptly. 
+
+### Unemployment 
+
+First, I calculate unemployment rates as defined by this survey. I graph them as a bar chart after. 
+
+```{r unem_percs}
+unem_time<-svyby(~ unem2_4a, 
+                 ~ year, 
+                 design = ab_des_ec, 
+                 svymean, 
+                 na.rm = T) %>% as.data.frame()
+
+unem_time<-unem_time[3:8,]
+unem_time
+```
+
+```{r unem_time, fig.align = 'center'}
+unem_time_g<-ggplot(unem_time, aes(x = year, y = unem2_4a, group = 1)) + 
+           geom_col(fill = 'chartreuse3',
+                    colour = 'black') +
+           geom_errorbar(aes(ymin = unem2_4a - se,
+                             ymax = unem2_4a + se),
+                         width = .5)+
+           geom_text(aes(label= round(unem2_4a, 4)*100),
+                     size = 3,
+                     vjust = -2.1
+                     )+
+           theme_bw()+
+           theme(panel.grid.major = element_blank(),
+                 panel.grid.minor = element_blank(),
+                 text = element_text(family = 'TNR'),
+                 axis.text.y = element_blank(),
+                 axis.text.x = element_text(size = 8),
+                 axis.ticks = element_blank(),
+                 plot.title =  element_text(face = 'bold', size = 12),
+                 plot.subtitle = element_text(size = 12))+
+          labs(x = '', 
+               y = '', 
+               title = 'Percent who report being unemployed, by year',
+               subtitle = 'With 95% confidence interval (considering design effects)')
+print(unem_time_g)
+```
+
+### Economic Situation
+
+Now I do the same procedures for the economic situation question, paying attention to those who report having a worse economic situation relative to their situation 12 months before.
+
+```{r ec_sit_perc}
+ecsit_time<-svyby(~ econ_sit, 
+                  ~ year, 
+                  design = ab_des_ec, 
+                  svymean, 
+                  na.rm = T) %>% as.data.frame()
+
+# Select only the Worse percentages
+
+ecsit_time<-dplyr::select(ecsit_time, year, econ_sitWorse, se.econ_sitWorse)
+ecsit_time
+```
+
+Now the graph: 
+
+```{r ec_sit_graph}
+ec_sit_g<-ggplot(ecsit_time, aes(x = year, y = econ_sitWorse, group = 1)) + 
+           geom_col(fill = 'chartreuse3',
+                    colour = 'black') +
+           geom_errorbar(aes(ymin = econ_sitWorse - se.econ_sitWorse,
+                             ymax = econ_sitWorse + se.econ_sitWorse),
+                         width = .5)+
+           geom_text(aes(label= round(econ_sitWorse, 4)*100),
+                     size = 3,
+                     vjust = -1.5
+                     )+
+           theme_bw()+
+           theme(panel.grid.major = element_blank(),
+                 panel.grid.minor = element_blank(),
+                 text = element_text(family = 'TNR'),
+                 axis.text.y = element_blank(),
+                 axis.text.x = element_text(size = 8),
+                 axis.ticks = element_blank(),
+                 plot.title =  element_text(face = 'bold', size = 12),
+                 plot.subtitle = element_text(size = 12))+
+          labs(x = '', 
+               y = '', 
+               title = 'Percent who report having worse economic situations, by year',
+               subtitle = 'With 95% confidence interval (considering design effects)')
+print(ec_sit_g)
+```
+A very, very important increase between 2014 and 2016. Let's see how it affects the composition of corruption justifiers.
+
+### Political Score/Groups
+
+Now I calculate and present percentages of people that answer about their scores on the political wings. 
+
+First, I calculate and graph the politization indicator as shown in the LAPOP report. Equals 1 if the person did NOT answer the political score. More politization means a lower percentage of no responses. 
+
+```{r politization_tab}
+politization_time<-svyby(~ plscr_na, 
+                         ~ year, 
+                         design = ab_des_ec, 
+                         svymean, 
+                         na.rm = T) %>% as.data.frame()
+politization_time
+```
+Now the graph: 
+
+```{r politization_g}
+polit_g<-ggplot(politization_time, aes(x = year, y = plscr_na, group = 1)) + 
+                geom_col(fill = 'chartreuse3',
+                    colour = 'black') +
+                geom_errorbar(aes(ymin = plscr_na - se,
+                                  ymax = plscr_na + se),
+                              width = .5)+
+                geom_text(aes(label= round(plscr_na, 4)*100),
+                          size = 3,
+                          vjust = -2.2)+
+                theme_bw()+
+                theme(panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      text = element_text(family = 'TNR'),
+                      axis.text.y = element_blank(),
+                      axis.text.x = element_text(size = 8),
+                      axis.ticks = element_blank(),
+                      plot.title =  element_text(face = 'bold', size = 12),
+                      plot.subtitle = element_text(size = 12))+
+                labs(x = '', 
+                     y = '', 
+                     title = 'Percent who do not answer the political score question, by year',
+                     subtitle = 'With 95% confidence interval (considering design effects)')
+print(polit_g)
+```
+
+Now the same procedure for all three political positions, as defined by LAPOP reports: left, center and right. 
+
+```{r polscore_tab}
+polgroup_time_calc<-svyby(~ pol_group, 
+                          ~ year, 
+                          design = ab_des_ec, 
+                          svymean, 
+                          na.rm = T) %>% as.data.frame()
+# Rename variables
+polgroup_time_calc<-rename(polgroup_time_calc, 
+                           'Center' = pol_groupCenter, 
+                           'Left' = pol_groupLeft, 
+                           'Right' = pol_groupRight,
+                           'None' = pol_groupNone,
+                           'SE.c'= se.pol_groupCenter,
+                           'SE.l'= se.pol_groupLeft,
+                           'SE.r'= se.pol_groupRight,
+                           'SE.n'= se.pol_groupNone)
+polgroup_time_calc
+```
+Now make the three graphs:
+
+```{r left_graph}
+left_g<-ggplot(polgroup_time_calc, aes(x = year, y = Left, group = 1)) + 
+               geom_col(fill = 'chartreuse3',
+                        colour = 'black') +
+               geom_errorbar(aes(ymin = Left - SE.l,
+                                 ymax = Left + SE.l),
+                             width = .5)+
+               geom_text(aes(label= round(Left, 4)*100),
+                         size = 3,
+                         vjust = -2.2)+
+               theme_bw()+
+               theme(panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      text = element_text(family = 'TNR'),
+                      axis.text.y = element_blank(),
+                      axis.text.x = element_text(size = 8),
+                      axis.ticks = element_blank(),
+                      plot.title =  element_text(face = 'bold', size = 12),
+                      plot.subtitle = element_text(size = 12))+
+               labs(x = '', 
+                    y = '', 
+                    title = 'Percent who identify with the left political wing, by year',
+                    subtitle = 'With 95% confidence interval (considering design effects)',
+                    caption = 'Corresponds to people answering scores lower than 5 in the Political Score (L1) question')
+print(left_g)
+
+```
+
+```{r right_graph}
+right_g<-ggplot(polgroup_time_calc, aes(x = year, y = Right, group = 1)) + 
+               geom_col(fill = 'chartreuse3',
+                        colour = 'black') +
+               geom_errorbar(aes(ymin = Right - SE.r,
+                                 ymax = Right + SE.r),
+                             width = .5)+
+               geom_text(aes(label= round(Right, 4)*100),
+                         size = 3,
+                         vjust = -1.9)+
+               theme_bw()+
+               theme(panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      text = element_text(family = 'TNR'),
+                      axis.text.y = element_blank(),
+                      axis.text.x = element_text(size = 8),
+                      axis.ticks = element_blank(),
+                      plot.title =  element_text(face = 'bold', size = 12),
+                      plot.subtitle = element_text(size = 12))+
+               labs(x = '', 
+                    y = '', 
+                    title = 'Percent who identify with the right political wing, by year',
+                    subtitle = 'With 95% confidence interval (considering design effects)',
+                    caption = 'Corresponds to people answering scores higher than 7 in the Political Score (L1) question')
+print(right_g)
+
+```
+```{r center_graph}
+center_g<-ggplot(polgroup_time_calc, aes(x = year, y = Center, group = 1)) + 
+                 geom_col(fill = 'chartreuse3',
+                          colour = 'black') +
+                 geom_errorbar(aes(ymin = Center - SE.c,
+                                   ymax = Center + SE.c),
+                               width = .5)+
+                 geom_text(aes(label= round(Center, 4)*100),
+                         size = 3,
+                         vjust = -1.3)+
+                theme_bw()+
+                theme(panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank(),
+                      text = element_text(family = 'TNR'),
+                      axis.text.y = element_blank(),
+                      axis.text.x = element_text(size = 8),
+                      axis.ticks = element_blank(),
+                      plot.title =  element_text(face = 'bold', size = 12),
+                      plot.subtitle = element_text(size = 12))+
+                labs(x = '', 
+                     y = '', 
+                     title = 'Percent who identify in the center of the political wings, by year',
+                     subtitle = 'With 95% confidence interval (considering design effects)',
+                     caption = 'Corresponds to people answering scores between 4 and 7 in the Political Score (L1) question')
+print(center_g)
+
+```
+
+The percentages are consistent with the LAPOP report: the right wins a lot between 2014 and 2016, where as the center also gains and the left remains the same. People who are "neutral" decrease steadily, the sharpest drop is in 2016, which might be interesting. 
+
+### Presidential Job Approval Rating
+
+Draw a time series of this variable.
+
+```{r pres_aprov}
+
+pres_approval_time<-svyby(~ pres_aprov_dic,
+                          ~ year,
+                          svymean,
+                          design = ab_des_ec,
+                          na.rm = T) %>% as.data.frame()
+
+pres_approval_time<-dplyr::select(pres_approval_time, year, pres_aprov_dicYes, se.pres_aprov_dicYes)
+pres_approval_time<-rename(pres_approval_time, 'pres_aprov_dic'= pres_aprov_dicYes, 'se'=se.pres_aprov_dicYes)
+
+
+```
+Now I'll graph the time series:
+
+```{r pres_aprov_tg}
+pres_aprov_tg<-
+  ggplot(pres_approval_time, aes(x = year, y = pres_aprov_dic))+
+  geom_col(fill = 'chartreuse3',
+           colour = 'black') +
+           geom_errorbar(aes(ymin = pres_aprov_dic - se,
+                             ymax = pres_aprov_dic + se),
+                             width = .5)+
+           geom_text(aes(label= round(pres_aprov_dic, 4)*100),
+                         size = 3,
+                         vjust = -1.3)+
+           theme_bw() +
+           theme(panel.grid.major = element_blank(),
+                 panel.grid.minor = element_blank(),
+                 text = element_text(family = 'TNR'),
+                 axis.text.y = element_blank(),
+                 axis.text.x = element_text(size = 8),
+                 axis.ticks = element_blank(),
+                 plot.title =  element_text(face = 'bold', size = 12),
+                 plot.subtitle = element_text(size = 12))+
+           labs(x = '', 
+                y = '', 
+                title = 'Percent who approve the job performance of the President, by year',
+                subtitle = 'With 95% confidence interval (considering design effects)')
+print(pres_aprov_tg)
+```
+
+## Decomposing corruption tolerance
+
+Here I will graph the information that can be used to explain, through descriptive statistics, the DiD models. I decompose the people that answer "Yes" to tolerating a bribe, and compare those decompositions through 2014 and 2016. 
+
+### Unemployment
+
+Now, I consider the % of people who answered "YES" to a bribe being justified who report being unemployed. 
+
+First, I subset out the dataset to have only positive responses to the $ctol$ variable and then create a new survey design object to later use in calculations. 
+
+```{r unem_ctol}
+# Subset a base with only yes responses to ctol
+
+df_ctol<-subset(df, 
+                df$ctol == 1)
+
+# Declare its survey design
+
+ctol_des<-svydesign(ids = ~ upm, 
+                   strata = ~ estratopri, 
+                   weights = ~ weight1500, 
+                   nest = TRUE,
+                   na.action = 'na.exclude',
+                   data = df_ctol)
+
+# Now subset a base with only "no" responses
+
+df_ctol_no<-subset(df, 
+                   df$ctol == 0)
+
+# Declare its survey design
+
+ctol_des_no<-svydesign(ids = ~ upm, 
+                   strata = ~ estratopri, 
+                   weights = ~ weight1500, 
+                   nest = TRUE,
+                   na.action = 'na.exclude',
+                   data = df_ctol_no)
+
+```
+
+Now I do the calculations, considering design effects too (as long as this technique works well from a statistical viewpoint. It appears it does).
+
+```{r unem_ctol_calc}
+unem_ctol<-svyby(~ unem2_4a, 
+                 ~ year, 
+                 design = ctol_des, 
+                 svymean, 
+                 na.rm = T) %>% 
+                 as.data.frame()
+unem_ctol<-unem_ctol[3:8,]
+unem_ctol
+```
+
+Graph below:
+
+```{r unem_ctol_g, fig.align = 'center'}
+unem_timec_g<-ggplot(unem_ctol, aes(x = year, y = unem2_4a, group = 1)) + 
+              geom_col(fill = 'chartreuse3',
+                       colour = 'black') +
+              geom_errorbar(aes(ymin = unem2_4a - se,
+                                ymax = unem2_4a + se),
+                            width = .5)+
+              geom_text(aes(label= round(unem2_4a, 4)*100),
+                        size = 3,
+                        vjust = 6,
+                        hjust = 0.5)+
+              theme_bw()+
+              theme(panel.grid.major = element_blank(),
+                    panel.grid.minor = element_blank(),
+                    text = element_text(family = 'TNR'),
+                    axis.text.y = element_blank(),
+                    axis.text.x = element_text(size = 8),
+                    axis.ticks = element_blank(),
+                    plot.title =  element_text(face = 'bold', size = 12),
+                    plot.subtitle = element_text(size = 12))+
+              labs(x = '', 
+                   y = '', 
+                   title = 'Percent of corruption justifiers who report being unemployed, by year',
+                   subtitle = 'With 95% confidence interval (considering design effects)')
+print(unem_timec_g)
+
+```
+Change between 2014 and 2016 seems trivial, the interesting jump is from 2012 to 2014. Note how in different years there are different error margins, probably due to differences in the sample size. This varies directly with the % of corruption justifiers, which is quite low for 2014. 
+
+I want to graph the percentage of unemployed people who answer "Yes" to the corruption tolerance question. 
+
+```{r unem_by_ctol}
+# Base with only unemployed
+
+df_unem<-subset(df, df$unem2_4a == 1)
+
+# Survey design 
+
+ab_des_ec_unem<-svydesign(ids=~upm, 
+                          strata=~estratopri, 
+                          weights=~weight1500, 
+                          nest=TRUE,
+                          na.action = 'na.exclude',
+                          data=df_unem)
+
+# Tabulate
+
+unem_byctol<-svyby(~ ctol, 
+                   ~ year, 
+                   design = ab_des_ec_unem, 
+                   svymean, 
+                   na.rm = T) %>% 
+                   as.data.frame()
+```
+
+Now the same but for those which are not unemployed
+
+```{r non_unem_by_ctol}
+# Base with only unemployed
+
+df_non_unem<-subset(df, df$unem2_4a == 0)
+
+# Survey design 
+
+ab_des_ec_non_unem<-svydesign(ids=~upm, 
+                          strata=~estratopri, 
+                          weights=~weight1500, 
+                          nest=TRUE,
+                          na.action = 'na.exclude',
+                          data=df_non_unem)
+
+# Tabulate
+
+nunem_byctol<-svyby(~ ctol, 
+                   ~ year, 
+                   design = ab_des_ec_non_unem, 
+                   svymean, 
+                   na.rm = T) %>% 
+                   as.data.frame()
+nunem_byctol
+```
+
+
+
+### Economic Situation
+
+I will graph the % of corruption justifiers who report being worse off in 2016 in their economic situation. First I do the calculations: 
+
+```{r ecsit_ctol}
+ecsit_ctol<-svyby(~ econ_sit, 
+                  ~ year, 
+                  design = ctol_des, 
+                  svymean, 
+                  na.rm = T) %>% 
+                  as.data.frame()
+
+# Select the columns I'm interested in
+
+ecsit_ctol<-dplyr::select(ecsit_ctol, year, econ_sitWorse, se.econ_sitWorse)
+ecsit_ctol
+```
+The graph below
+
+```{r ec_sit_ctol_g}
+ec_sitc_g<-ggplot(ecsit_ctol, aes(x = year, y = econ_sitWorse, group = 1)) + 
+           geom_col(fill = 'chartreuse3',
+                    colour = 'black') +
+           geom_errorbar(aes(ymin = econ_sitWorse - se.econ_sitWorse,
+                             ymax = econ_sitWorse + se.econ_sitWorse),
+                         width = .5)+
+           geom_text(aes(label= round(econ_sitWorse, 4)*100),
+                     size = 3,
+                     vjust = -2
+                     )+
+           theme_bw()+
+           theme(panel.grid.major = element_blank(),
+                 panel.grid.minor = element_blank(),
+                 text = element_text(family = 'TNR'),
+                 axis.text.y = element_blank(),
+                 axis.text.x = element_text(size = 8),
+                 axis.ticks = element_blank(),
+                 plot.title =  element_text(face = 'bold', size = 12),
+                 plot.subtitle = element_text(size = 12))+
+          labs(x = '', 
+               y = '', 
+               title = 'Percent of corruption justifiers who report having worse economic situations, by year',
+               subtitle = 'With 95% confidence interval (considering design effects)')
+print(ec_sitc_g)
+```
+The percentage increase of the corruption justifiers with worse economic situation seems pretty close with the overall percentage increase. 
+
+Let's see how the same works for NON corruption justifiers. 
+
+```{r ecsit_ctol_no}
+# Survey design for corruption rejecters.
+ecsit_ctoln<-svyby(~ econ_sit, 
+                   ~ year, 
+                   design = ctol_des_no, 
+                   svymean, 
+                   na.rm = T) %>% 
+                   as.data.frame()
+
+# Select the columns I'm interested in
+
+ecsit_ctoln<-dplyr::select(ecsit_ctoln, year, econ_sitWorse, se.econ_sitWorse)
+ecsit_ctoln
+
+```
+The graph: 
+
+```{r ec_sit_ctoln_g}
+ec_sitc_g<-ggplot(ecsit_ctoln, aes(x = year, y = econ_sitWorse, group = 1)) + 
+           geom_col(fill = 'chartreuse3',
+                    colour = 'black') +
+           geom_errorbar(aes(ymin = econ_sitWorse - se.econ_sitWorse,
+                             ymax = econ_sitWorse + se.econ_sitWorse),
+                         width = .5)+
+           geom_text(aes(label= round(econ_sitWorse, 4)*100),
+                     size = 3,
+                     vjust = -1.5
+                     )+
+           theme_bw()+
+           theme(panel.grid.major = element_blank(),
+                 panel.grid.minor = element_blank(),
+                 text = element_text(family = 'TNR'),
+                 axis.text.y = element_blank(),
+                 axis.text.x = element_text(size = 8),
+                 axis.ticks = element_blank(),
+                 plot.title =  element_text(face = 'bold', size = 12),
+                 plot.subtitle = element_text(size = 12))+
+          labs(x = '', 
+               y = '', 
+               title = 'Percent of corruption rejecters who report having worse economic situations, by year',
+               subtitle = 'With 95% confidence interval (considering design effects)')
+print(ec_sitc_g)
+```
+Indeed, the economic effect seems to affect both corruption justifiers and rejecters equally according to this graph. The "same difference" is found between 2014 and 2016. Thus that might be why the economic situation variable is not significative in my regression models. 
+
+### Political Score
+
+Now lets see how this works within the corruption justifiers. 
+
+```{r polit_ctol}
+polgroup_ctol<-svyby(~ pol_group, 
+                     ~ year, 
+                     design = ctol_des, 
+                     svymean, 
+                     na.rm = T) %>% 
+                     as.data.frame()
+# Rename
+polgroup_ctol<-rename(polgroup_ctol, 
+                      'Center' = pol_groupCenter, 
+                      'Left' = pol_groupLeft, 
+                      'Right' = pol_groupRight,
+                      'None' = pol_groupNone,
+                      'SE.c'= se.pol_groupCenter,
+                      'SE.l'= se.pol_groupLeft,
+                      'SE.r'= se.pol_groupRight,
+                      'SE.n'= se.pol_groupNone)
+polgroup_ctol
+```
+Graph the politization percentage of the corruption justifiers.
+
+```{r polit_ctol_g}
+polit_ctol_g<-ggplot(polgroup_ctol, aes(x = year, y = None, group = 1)) + 
+                     geom_col(fill = 'chartreuse3',
+                     colour = 'black') +
+                     geom_errorbar(aes(ymin = None - SE.n,
+                                       ymax = None + SE.n),
+                                   width = .5)+
+                     geom_text(aes(label= round(None, 4)*100),
+                               size = 3,
+                               vjust = -3.2)+
+                     theme_bw()+
+                     theme(panel.grid.major = element_blank(),
+                           panel.grid.minor = element_blank(),
+                           text = element_text(family = 'TNR'),
+                           axis.text.y = element_blank(),
+                           axis.text.x = element_text(size = 8),
+                           axis.ticks = element_blank(),
+                           plot.title =  element_text(face = 'bold', size = 12),
+                           plot.subtitle = element_text(size = 12))+
+                    labs(x = '', 
+                         y = '', 
+                         title = 'Percent of corruption justifiers who do not answer the political score question, by year',
+                         subtitle = 'With 95% confidence interval (considering design effects)')
+print(polit_ctol_g)
+```
+This graph shows a drop, which could be marginally significant, considering the 95% confidence intervals. 
+
+Now graph the other political wings of the corruption justifiers. 
+
+```{r ctol_right}
+right_ctol_g<-ggplot(polgroup_ctol, aes(x = year, y = Right, group = 1)) + 
+                     geom_col(fill = 'chartreuse3',
+                     colour = 'black') +
+                     geom_errorbar(aes(ymin = Right - SE.r,
+                                       ymax = Right + SE.r),
+                                   width = .5)+
+                     geom_text(aes(label= round(Right, 4)*100),
+                               size = 3,
+                               vjust = 6)+
+                     theme_bw()+
+                     theme(panel.grid.major = element_blank(),
+                           panel.grid.minor = element_blank(),
+                           text = element_text(family = 'TNR'),
+                           axis.text.y = element_blank(),
+                           axis.text.x = element_text(size = 8),
+                           axis.ticks = element_blank(),
+                           plot.title =  element_text(face = 'bold', size = 12),
+                           plot.subtitle = element_text(size = 12))+
+                    labs(x = '', 
+                         y = '', 
+                         title = 'Percent of corruption justifiers who identify with the right',
+                         subtitle = 'With 95% confidence interval (considering design effects)')
+print(right_ctol_g)
+```
+An interesting increase, which I guess justifies the marginal significance of this variable in models. 
+
+The graph of the left now: 
+
+```{r ctol_left}
+left_ctol_g<-ggplot(polgroup_ctol, aes(x = year, y = Left, group = 1)) + 
+                     geom_col(fill = 'chartreuse3',
+                     colour = 'black') +
+                     geom_errorbar(aes(ymin = Left - SE.l,
+                                       ymax = Left + SE.l),
+                                   width = .5)+
+                     geom_text(aes(label= round(Left, 4)*100),
+                               size = 3,
+                               vjust = 6)+
+                     theme_bw()+
+                     theme(panel.grid.major = element_blank(),
+                           panel.grid.minor = element_blank(),
+                           text = element_text(family = 'TNR'),
+                           axis.text.y = element_blank(),
+                           axis.text.x = element_text(size = 8),
+                           axis.ticks = element_blank(),
+                           plot.title =  element_text(face = 'bold', size = 12),
+                           plot.subtitle = element_text(size = 12))+
+                    labs(x = '', 
+                         y = '', 
+                         title = 'Percent of corruption justifiers who identify with the left',
+                         subtitle = 'With 95% confidence interval (considering design effects)')
+print(left_ctol_g)
+```
+The graph of the center now:
+
+```{r ctol_center}
+center_ctol_g<-ggplot(polgroup_ctol, aes(x = year, y = Center, group = 1)) + 
+                     geom_col(fill = 'chartreuse3',
+                     colour = 'black') +
+                     geom_errorbar(aes(ymin = Center - SE.c,
+                                       ymax = Center + SE.c),
+                                   width = .5)+
+                     geom_text(aes(label= round(Center, 4)*100),
+                               size = 3,
+                               vjust = 6)+
+                     theme_bw()+
+                     theme(panel.grid.major = element_blank(),
+                           panel.grid.minor = element_blank(),
+                           text = element_text(family = 'TNR'),
+                           axis.text.y = element_blank(),
+                           axis.text.x = element_text(size = 8),
+                           axis.ticks = element_blank(),
+                           plot.title =  element_text(face = 'bold', size = 12),
+                           plot.subtitle = element_text(size = 12))+
+                    labs(x = '', 
+                         y = '', 
+                         title = 'Percent of corruption justifiers who identify with the center',
+                         subtitle = 'With 95% confidence interval (considering design effects)')
+print(center_ctol_g)
+```
+Lets do the same for the corruption rejecters. First the calculations. 
+
+```{r ctol_rej_g}
+
+polgroup_ctoln<-svyby(~ pol_group, 
+                     ~ year, 
+                     design = ctol_des_no, 
+                     svymean, 
+                     na.rm = T) %>% 
+                     as.data.frame()
+# Rename
+polgroup_ctoln<-rename(polgroup_ctoln, 
+                      'Center' = pol_groupCenter, 
+                      'Left' = pol_groupLeft, 
+                      'Right' = pol_groupRight,
+                      'None' = pol_groupNone,
+                      'SE.c'= se.pol_groupCenter,
+                      'SE.l'= se.pol_groupLeft,
+                      'SE.r'= se.pol_groupRight,
+                      'SE.n'= se.pol_groupNone)
+polgroup_ctoln
+```
+
+```{r ctoln_none_g}
+ctoln_none_g<-ggplot(polgroup_ctoln, aes(x = year, y = None, group = 1)) + 
+                     geom_col(fill = 'chartreuse3',
+                     colour = 'black') +
+                     geom_errorbar(aes(ymin = None - SE.n,
+                                       ymax = None + SE.n),
+                                   width = .5)+
+                     geom_text(aes(label= round(None, 4)*100),
+                               size = 3,
+                               vjust = 6)+
+                     theme_bw()+
+                     theme(panel.grid.major = element_blank(),
+                           panel.grid.minor = element_blank(),
+                           text = element_text(family = 'TNR'),
+                           axis.text.y = element_blank(),
+                           axis.text.x = element_text(size = 8),
+                           axis.ticks = element_blank(),
+                           plot.title =  element_text(face = 'bold', size = 12),
+                           plot.subtitle = element_text(size = 12))+
+                    labs(x = '', 
+                         y = '', 
+                         title = 'Percent of corruption rejecters who do not answer the political score question, by year',
+                         subtitle = 'With 95% confidence interval (considering design effects)')
+print(ctoln_none_g)
+```
+```{r ctoln_center_g}
+ctoln_center_g<-ggplot(polgroup_ctoln, aes(x = year, y = Center, group = 1)) + 
+                     geom_col(fill = 'chartreuse3',
+                     colour = 'black') +
+                     geom_errorbar(aes(ymin = Center - SE.c,
+                                       ymax = Center + SE.c),
+                                   width = .5)+
+                     geom_text(aes(label= round(Center, 4)*100),
+                               size = 3,
+                               vjust = 6)+
+                     theme_bw()+
+                     theme(panel.grid.major = element_blank(),
+                           panel.grid.minor = element_blank(),
+                           text = element_text(family = 'TNR'),
+                           axis.text.y = element_blank(),
+                           axis.text.x = element_text(size = 8),
+                           axis.ticks = element_blank(),
+                           plot.title =  element_text(face = 'bold', size = 12),
+                           plot.subtitle = element_text(size = 12))+
+                    labs(x = '', 
+                         y = '', 
+                         title = 'Percent of corruption rejecters who identify with the center, by year',
+                         subtitle = 'With 95% confidence interval (considering design effects)')
+print(ctoln_center_g)
+```
+```{r ctoln_left_g}
+ctoln_left_g<-ggplot(polgroup_ctoln, aes(x = year, y = Left, group = 1)) + 
+                     geom_col(fill = 'chartreuse3',
+                     colour = 'black') +
+                     geom_errorbar(aes(ymin = Left - SE.l,
+                                       ymax = Left + SE.l),
+                                   width = .5)+
+                     geom_text(aes(label= round(Left, 4)*100),
+                               size = 3,
+                               vjust = 6)+
+                     theme_bw()+
+                     theme(panel.grid.major = element_blank(),
+                           panel.grid.minor = element_blank(),
+                           text = element_text(family = 'TNR'),
+                           axis.text.y = element_blank(),
+                           axis.text.x = element_text(size = 8),
+                           axis.ticks = element_blank(),
+                           plot.title =  element_text(face = 'bold', size = 12),
+                           plot.subtitle = element_text(size = 12))+
+                    labs(x = '', 
+                         y = '', 
+                         title = 'Percent of corruption rejecters who identify with the left, by year',
+                         subtitle = 'With 95% confidence interval (considering design effects)')
+print(ctoln_left_g)
+```
+
+```{r ctoln_right_g}
+ctoln_right_g<-ggplot(polgroup_ctoln, aes(x = year, y = Right, group = 1)) + 
+                     geom_col(fill = 'chartreuse3',
+                     colour = 'black') +
+                     geom_errorbar(aes(ymin = Right - SE.r,
+                                       ymax = Right + SE.r),
+                                   width = .5)+
+                     geom_text(aes(label= round(Right, 4)*100),
+                               size = 3,
+                               vjust = 6)+
+                     theme_bw()+
+                     theme(panel.grid.major = element_blank(),
+                           panel.grid.minor = element_blank(),
+                           text = element_text(family = 'TNR'),
+                           axis.text.y = element_blank(),
+                           axis.text.x = element_text(size = 8),
+                           axis.ticks = element_blank(),
+                           plot.title =  element_text(face = 'bold', size = 12),
+                           plot.subtitle = element_text(size = 12))+
+                    labs(x = '', 
+                         y = '', 
+                         title = 'Percent of corruption rejecters who identify with the right, by year',
+                         subtitle = 'With 95% confidence interval (considering design effects)')
+print(ctoln_right_g)
+```
+An important point: corruption rejecters ALSO win a lot of right-wing respondents for 2016. This might be why 
+
+### Confidence in the president
+
+Decompose tolerance to corruption considering the dichotomized version of presidential confidence. 
+
+```{r pconf_ctol_calc}
+pconf_ctol<-svyby(~ pres_conf_dic, 
+                  ~ year, 
+                  design = ctol_des, 
+                  svymean, 
+                  na.rm = T) %>% 
+                  as.data.frame()
+
+pconf_ctol<-dplyr::select(pconf_ctol, year, pres_conf_dicYes, se.pres_conf_dicYes) %>% 
+            rename('Yes' = pres_conf_dicYes, 'SE' =  se.pres_conf_dicYes)
+
+pconf_ctol<-pconf_ctol[3:8,]
+pconf_ctol
+```
+Now the graph: 
+
+```{r pres_conf_ctol_g}
+ctol_pres_conf_g<-ggplot(pconf_ctol, aes(x = year, y = Yes, group = 1)) + 
+                     geom_col(fill = 'chartreuse3',
+                     colour = 'black') +
+                     geom_errorbar(aes(ymin = Yes - SE,
+                                       ymax = Yes + SE),
+                                   width = .5)+
+                     geom_text(aes(label= round(Yes, 4)*100),
+                               size = 3,
+                               vjust = 6)+
+                     theme_bw()+
+                     theme(panel.grid.major = element_blank(),
+                           panel.grid.minor = element_blank(),
+                           text = element_text(family = 'TNR'),
+                           axis.text.y = element_blank(),
+                           axis.text.x = element_text(size = 8),
+                           axis.ticks = element_blank(),
+                           plot.title =  element_text(face = 'bold', size = 12),
+                           plot.subtitle = element_text(size = 12))+
+                    labs(x = '', 
+                         y = '', 
+                         title = 'Percent of corruption justifiers who confide with the president, by year',
+                         subtitle = 'With 95% confidence interval (considering design effects)')
+print(ctol_pres_conf_g)
+```
+Do the same for corruption rejecters. 
+
+```{r pconf_ctoln_calc}
+pconf_ctoln<-svyby(~ pres_conf_dic, 
+                  ~ year, 
+                  design = ctol_des_no, 
+                  svymean, 
+                  na.rm = T) %>% 
+                  as.data.frame()
+
+pconf_ctoln<-dplyr::select(pconf_ctoln, year, pres_conf_dicYes, se.pres_conf_dicYes) %>% 
+            rename('Yes' = pres_conf_dicYes, 'SE' =  se.pres_conf_dicYes)
+
+pconf_ctoln<-pconf_ctoln[3:8,]
+pconf_ctoln
+```
+
+Now the graph: 
+
+```{r ctoln_pres_conf_graph}
+ctoln_pres_conf_g<-ggplot(pconf_ctoln, aes(x = year, y = Yes, group = 1)) + 
+                     geom_col(fill = 'chartreuse3',
+                     colour = 'black') +
+                     geom_errorbar(aes(ymin = Yes - SE,
+                                       ymax = Yes + SE),
+                                   width = .5)+
+                     geom_text(aes(label= round(Yes, 4)*100),
+                               size = 3,
+                               vjust = 6)+
+                     theme_bw()+
+                     theme(panel.grid.major = element_blank(),
+                           panel.grid.minor = element_blank(),
+                           text = element_text(family = 'TNR'),
+                           axis.text.y = element_blank(),
+                           axis.text.x = element_text(size = 8),
+                           axis.ticks = element_blank(),
+                           plot.title =  element_text(face = 'bold', size = 12),
+                           plot.subtitle = element_text(size = 12))+
+                    labs(x = '', 
+                         y = '', 
+                         title = 'Percent of corruption rejecters who confide with the president, by year',
+                         subtitle = 'With 95% confidence interval (considering design effects)')
+print(ctoln_pres_conf_g)
+
+```
+
+This is the punchline. The people who used to reject corruption stopped doing so: government zealotry stopped. If there were less people who confided in the president, and in turn these people seemed to stop rejecting corrupt actitivities, it makes sense why corruption tolerance jumped. 
+
+
+## Graphical DiD representations
+
+Here I represent the DiD models through simple bar chart comparisons. Basically, we have two groups of bars, one for 2014 and 2016. Each bar inside a year shows the % of corruption justifiers inside a group that is made a DiD. 
+
+### Unemployment
+
+Here I graph the unemployment DiD graphical representation, or the representation of effects. 
+
+
+## Graphs using data outside the America's Barometer
+
+Below, I draw the graphs which are made without the AB's data
+
+### From the World Bank's World Development Indicators
+
+I now want to graph the GDP growth of different latin american countries, including Ecuador. Below, I use the `WDI` package to download the data from the World Bank's API. 
+
+```{r download_wdi_gdpg}
+# Define country ISO2 codes for downloading the GDP indicators
+
+countries_latam<-c('EC', 'CL', 'CO', 'PE', 'BO')
+
+# Download GDP data: total and per capita growth rates and magnitude per capita, constant prices 2010 USD
+
+gdp_wdi<-WDI(country = countries_latam, indicator = c('NY.GDP.MKTP.KD.ZG','NY.GDP.PCAP.KD.ZG', 'NY.GDP.PCAP.KD'))
+
+# Rename the variables
+
+gdp_wdi<-rename(gdp_wdi, 'gdp_g' = NY.GDP.MKTP.KD.ZG , 'gdppc_g' = NY.GDP.PCAP.KD.ZG, 'gdp_pc' = NY.GDP.PCAP.KD)
+
+```
+
+First I graph GDP per capita growth rates for the countries that I got.
+
+```{r gdppc_graph, fig.align = 'center', warning = F}
+gdppc_g<-
+  ggplot(gdp_wdi, aes(x = year, y = gdp_pc/1000, colour = country)) + 
+  geom_line() +
+  geom_point(size = 1) +
+  scale_y_continuous(breaks = c(2,4,6,8,10,12,14)) +
+  scale_x_continuous(breaks = c(1960, 1965, 1970, 1975, 1980, 1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020)) +
+  theme_bw() +
+  theme(text = element_text(family = 'TNR'),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = c(0.35,0.93),
+        legend.title = element_blank(),
+        legend.box.background = element_rect(colour = 'black')) +
+  labs(x = 'Year', 
+       y = 'GDP per Capita (Thousands of Constant 2010 USD)',
+       colour = 'Country')+
+  guides(colour = guide_legend(nrow = 1))
+
+gdppc_g
+
+```
+```{r gdppc_growth_g, fig.align = 'center', warning = F}
+
+gdp_wdi1<-subset(gdp_wdi, 
+                 gdp_wdi$country == 'Ecuador'| gdp_wdi$country == 'Colombia' | gdp_wdi$country == 'Peru')
+
+gdppc_growth_g<-
+  ggplot(gdp_wdi1, aes(x = year, y = gdppc_g, colour = country)) + 
+  geom_line() +
+  geom_point(size = 1) +
+  scale_y_continuous(breaks = c(2,4,6,8,10,12,14)) +
+  scale_x_continuous(breaks = c(1960, 1965, 1970, 1975, 1980, 1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020)) +
+  theme_bw() +
+  theme(text = element_text(family = 'TNR'),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = c(0.35,0.93),
+        legend.title = element_blank(),
+        legend.box.background = element_rect(colour = 'black')) +
+  labs(x = 'Year', 
+       y = 'GDP per Capita Annual Growth (%)',
+       colour = 'Country')+
+  guides(colour = guide_legend(nrow = 1))
+
+gdppc_growth_g
+
+```
+
+
+## Output to PNG
+
+Here I output all graphs made to PNG
+
+```{r output_graph}
+ggsave('C:/Users/Daniel Sanchez/OneDrive/Documentos/u/tesis/LAPOP/analisis con R/Ecuador 2004-2019/figures/ctol_time.png',
+       ctol_time, width = 18, height = 12, units = 'cm')
+ggsave('C:/Users/Daniel Sanchez/OneDrive/Documentos/u/tesis/LAPOP/analisis con R/Ecuador 2004-2019/figures/ctol_time_bar.png',
+       ctol_time_col, width = 18, height = 12, units = 'cm')
+
+```
+
+
